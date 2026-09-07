@@ -7,6 +7,19 @@ from datetime import datetime
 
 st.set_page_config(page_title="Control de Finanzas", layout="wide", page_icon="💳")
 
+# Estilo visual tipo App nativa (oculta barras de Streamlit/GitHub)
+st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .block-container {
+            padding-top: 1.5rem;
+            padding-bottom: 2rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # Conexión con Google Sheets usando Secrets
 @st.cache_resource
 def get_google_sheet():
@@ -47,21 +60,23 @@ if not df_config.empty:
 else:
     mes_actual, nomina, bolsa_inicial, colchon = "Actual", 2050.0, 600.0, 200.0
 
-# Sidebar / Panel de Ajustes del Día 1
-with st.sidebar:
-    st.header("⚙️ Ajustes del Mes")
+# ================= ENCABEZADO Y CONTROLES PRINCIPALES =================
+st.title("💳 Panel Financiero")
+
+# Ajustes integrados directamente en pantalla (sin barra lateral traicionera)
+with st.expander("⚙️ AJUSTAR MES (Nómina, Bolsa y Colchón)", expanded=False):
     with st.form("form_ajustes_mes"):
-        nuevo_mes = st.text_input("Mes / Etiqueta", value=mes_actual)
-        nueva_nomina = st.number_input("Nómina ingresada (€)", value=nomina, step=50.0, format="%.2f")
-        nueva_bolsa = st.number_input("Bolsa para Pasar el Mes (€)", value=bolsa_inicial, step=50.0, format="%.2f")
-        nuevo_colchon = st.number_input("Colchón en Cuenta (€)", value=colchon, step=50.0, format="%.2f")
-        btn_guardar_config = st.form_submit_button("Guardar Ajustes del Mes")
+        c1, c2, c3, c4 = st.columns(4)
+        nuevo_mes = c1.text_input("Mes", value=mes_actual)
+        nueva_nomina = c2.number_input("Nómina ingresada (€)", value=nomina, step=50.0, format="%.2f")
+        nueva_bolsa = c3.number_input("Bolsa Pasar Mes (€)", value=bolsa_inicial, step=50.0, format="%.2f")
+        nuevo_colchon = c4.number_input("Colchón en Cuenta (€)", value=colchon, step=50.0, format="%.2f")
         
+        btn_guardar_config = st.form_submit_button("Guardar Cambios del Mes")
         if btn_guardar_config:
-            # Actualiza o añade la última fila en Config_Mes
             fila_idx = len(df_config) + 1 if not df_config.empty else 2
             ws_config.update(f"A{fila_idx}:D{fila_idx}", [[nuevo_mes, nueva_nomina, nueva_bolsa, nuevo_colchon]])
-            st.success("Configuración actualizada correctamente.")
+            st.success("Ajustes actualizados.")
             st.rerun()
 
 # Cálculos de gastos variables
@@ -81,13 +96,10 @@ if not df_fijos.empty and "Estado" in df_fijos.columns:
 # Excedente a Ahorro
 ahorro_disponible = nomina - total_fijos - bolsa_inicial
 
-# ================= INTERFAZ PRINCIPAL =================
-st.title("💳 Panel Financiero")
+# ================= MÉTRICAS CLAVE =================
+m1, m2, m3, m4 = st.columns(4)
 
-# Métricas principales
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
+with m1:
     st.metric(
         label="🔥 Bolsa para Pasar el Mes",
         value=f"{bolsa_restante:.2f} €",
@@ -95,21 +107,21 @@ with col1:
         delta_color="inverse"
     )
 
-with col2:
+with m2:
     st.metric(
         label="⏳ Fijos por Cobrar",
         value=f"{fijos_pendientes:.2f} €",
-        help="Total de recibos pendientes de cobro"
+        help="Recibos pendientes de cargo en cuenta"
     )
 
-with col3:
+with m3:
     st.metric(
         label="🛡️ Colchón en Cuenta",
         value=f"{colchon:.2f} €",
-        help="Saldo mínimo o reserva fijada en cuenta"
+        help="Reserva fija en la cuenta corriente"
     )
 
-with col4:
+with m4:
     st.metric(
         label="💰 Excedente a Ahorro / Fondo",
         value=f"{ahorro_disponible:.2f} €",
@@ -118,19 +130,19 @@ with col4:
 
 st.divider()
 
+# ================= OPERATIVA: REGISTRO Y RECIBOS =================
 col_izq, col_der = st.columns([1, 1])
 
-# Formulario para registrar gasto
+# Formulario para registrar compras al vuelo
 with col_izq:
     st.subheader("➕ Añadir Gasto Rápido")
     with st.form("form_gasto", clear_on_submit=True):
-        concepto = st.text_input("Concepto", placeholder="Mercadona, Gasolina, Cena...")
+        concepto = st.text_input("Concepto", placeholder="Mercadona, Gasolina, Cine...")
         importe = st.number_input("Importe (€)", min_value=0.01, step=1.0, format="%.2f")
         categoria = st.selectbox("Categoría", ["Alimentación", "Gasolina/Transporte", "Ocio/Restaurante", "Hogar", "Otros"])
         impacto = st.radio("Descontar de:", ["Bolsa Mes", "Ahorro / Colchón"], horizontal=True)
         
         btn_guardar = st.form_submit_button("Registrar Movimiento")
-        
         if btn_guardar:
             if concepto and importe > 0:
                 fecha_hoy = datetime.now().strftime("%Y-%m-%d")
@@ -138,9 +150,9 @@ with col_izq:
                 st.success(f"Guardado: {concepto} ({importe:.2f} €)")
                 st.rerun()
             else:
-                st.warning("Escribe un concepto y un importe válido.")
+                st.warning("Completa el concepto y el importe.")
 
-# Gestión de recibos fijos con botón único de guardado
+# Checklist de fijos con guardado seguro por lote
 with col_der:
     st.subheader("📋 Recibos del Mes")
     if not df_fijos.empty:
@@ -157,13 +169,12 @@ with col_der:
             
             btn_guardar_recibos = st.form_submit_button("Actualizar Estados de Recibos")
             if btn_guardar_recibos:
-                # Actualiza toda la columna de estados en un solo viaje
                 celdas = [[e] for e in estados_actualizados]
                 ws_fijos.update(f"C2:C{len(estados_actualizados) + 1}", celdas)
                 st.success("Recibos actualizados.")
                 st.rerun()
     else:
-        st.info("No hay recibos fijos configurados.")
+        st.info("No hay recibos configurados.")
 
 st.divider()
 

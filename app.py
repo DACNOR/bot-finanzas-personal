@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 import pandas as pd
 import gspread
@@ -13,12 +14,9 @@ def get_google_sheet():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    credentials = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scopes
-    )
+    info = json.loads(st.secrets["gcp_json"])
+    credentials = Credentials.from_service_account_info(info, scopes=scopes)
     client = gspread.authorize(credentials)
-    # Abre la hoja por nombre exacto
     sheet = client.open("Finanzas_Control")
     return sheet
 

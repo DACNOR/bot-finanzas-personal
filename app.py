@@ -29,7 +29,7 @@ except Exception as e:
     st.error(f"Error conectando con Google Sheets: {e}")
     st.stop()
 
-# Cargar datos
+# Cargar datos desde Google Sheets
 config_data = ws_config.get_all_records()
 fijos_data = ws_fijos.get_all_records()
 movs_data = ws_movs.get_all_records()
@@ -38,15 +38,33 @@ df_config = pd.DataFrame(config_data)
 df_fijos = pd.DataFrame(fijos_data)
 df_movs = pd.DataFrame(movs_data)
 
-# Valores base
+# Valores actuales de configuración
 if not df_config.empty:
+    mes_actual = str(df_config.iloc[-1]["Mes"])
     nomina = float(df_config.iloc[-1]["Nomina"])
     bolsa_inicial = float(df_config.iloc[-1]["Bolsa_Mes_Inicial"])
     colchon = float(df_config.iloc[-1]["Colchon_Seguridad"])
 else:
-    nomina, bolsa_inicial, colchon = 2000.0, 600.0, 200.0
+    mes_actual, nomina, bolsa_inicial, colchon = "Actual", 2050.0, 600.0, 200.0
 
-# Cálculos de gastos
+# Sidebar / Panel de Ajustes del Día 1
+with st.sidebar:
+    st.header("⚙️ Ajustes del Mes")
+    with st.form("form_ajustes_mes"):
+        nuevo_mes = st.text_input("Mes / Etiqueta", value=mes_actual)
+        nueva_nomina = st.number_input("Nómina ingresada (€)", value=nomina, step=50.0, format="%.2f")
+        nueva_bolsa = st.number_input("Bolsa para Pasar el Mes (€)", value=bolsa_inicial, step=50.0, format="%.2f")
+        nuevo_colchon = st.number_input("Colchón en Cuenta (€)", value=colchon, step=50.0, format="%.2f")
+        btn_guardar_config = st.form_submit_button("Guardar Ajustes del Mes")
+        
+        if btn_guardar_config:
+            # Actualiza o añade la última fila en Config_Mes
+            fila_idx = len(df_config) + 1 if not df_config.empty else 2
+            ws_config.update(f"A{fila_idx}:D{fila_idx}", [[nuevo_mes, nueva_nomina, nueva_bolsa, nuevo_colchon]])
+            st.success("Configuración actualizada correctamente.")
+            st.rerun()
+
+# Cálculos de gastos variables
 gastos_bolsa = 0.0
 if not df_movs.empty and "Impacta_En" in df_movs.columns:
     df_bolsa = df_movs[df_movs["Impacta_En"] == "Bolsa Mes"]
@@ -60,13 +78,13 @@ fijos_pendientes = 0.0
 if not df_fijos.empty and "Estado" in df_fijos.columns:
     fijos_pendientes = float(df_fijos[df_fijos["Estado"] == "Pendiente"]["Importe"].sum())
 
-# Excedente teórico para Ahorro / Colchón
+# Excedente a Ahorro
 ahorro_disponible = nomina - total_fijos - bolsa_inicial
 
-# ================= UI =================
+# ================= INTERFAZ PRINCIPAL =================
 st.title("💳 Panel Financiero")
 
-# Fila de métricas estilo bloc de notas
+# Métricas principales
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -81,34 +99,34 @@ with col2:
     st.metric(
         label="⏳ Fijos por Cobrar",
         value=f"{fijos_pendientes:.2f} €",
-        help="Suma de recibos que aún figuran como pendientes"
+        help="Total de recibos pendientes de cobro"
     )
 
 with col3:
     st.metric(
         label="🛡️ Colchón en Cuenta",
         value=f"{colchon:.2f} €",
-        help="Reserva intocable mínima de seguridad"
+        help="Saldo mínimo o reserva fijada en cuenta"
     )
 
 with col4:
     st.metric(
         label="💰 Excedente a Ahorro / Fondo",
         value=f"{ahorro_disponible:.2f} €",
-        help="Nómina menos fijos totales y bolsa mensual"
+        help="Nómina - Fijos Totales - Bolsa del Mes"
     )
 
 st.divider()
 
-# Dos columnas: Meter Gasto vs Recibos Fijos
 col_izq, col_der = st.columns([1, 1])
 
+# Formulario para registrar gasto
 with col_izq:
     st.subheader("➕ Añadir Gasto Rápido")
     with st.form("form_gasto", clear_on_submit=True):
-        concepto = st.text_input("Concepto", placeholder="Mercadona, Gasolina, Cine...")
+        concepto = st.text_input("Concepto", placeholder="Mercadona, Gasolina, Cena...")
         importe = st.number_input("Importe (€)", min_value=0.01, step=1.0, format="%.2f")
-        categoria = st.selectbox("Categoría", ["Alimentación", "Gasolina/Transporte", "Ocio/Restaurante", "Casa", "Otros"])
+        categoria = st.selectbox("Categoría", ["Alimentación", "Gasolina/Transporte", "Ocio/Restaurante", "Hogar", "Otros"])
         impacto = st.radio("Descontar de:", ["Bolsa Mes", "Ahorro / Colchón"], horizontal=True)
         
         btn_guardar = st.form_submit_button("Registrar Movimiento")
@@ -117,33 +135,39 @@ with col_izq:
             if concepto and importe > 0:
                 fecha_hoy = datetime.now().strftime("%Y-%m-%d")
                 ws_movs.append_row([fecha_hoy, concepto, categoria, importe, impacto])
-                st.success(f"Guardado: {concepto} por {importe:.2f} €")
+                st.success(f"Guardado: {concepto} ({importe:.2f} €)")
                 st.rerun()
             else:
-                st.warning("Completa el concepto y un importe válido.")
+                st.warning("Escribe un concepto y un importe válido.")
 
+# Gestión de recibos fijos con botón único de guardado
 with col_der:
-    st.subheader("📋 Recibos del Mes (Tachar al cobrar)")
+    st.subheader("📋 Recibos del Mes")
     if not df_fijos.empty:
-        for index, row in df_fijos.iterrows():
-            f_col1, f_col2, f_col3 = st.columns([2, 1, 1])
-            f_col1.write(f"**{row['Concepto']}**")
-            f_col2.write(f"{row['Importe']} €")
+        with st.form("form_recibos"):
+            estados_actualizados = []
+            for index, row in df_fijos.iterrows():
+                f_col1, f_col2, f_col3 = st.columns([2, 1, 1])
+                f_col1.write(f"**{row['Concepto']}**")
+                f_col2.write(f"{row['Importe']} €")
+                
+                estado_actual = row['Estado'] == "Cobrado"
+                marcado = f_col3.checkbox("Cobrado", value=estado_actual, key=f"fijo_chk_{index}")
+                estados_actualizados.append("Cobrado" if marcado else "Pendiente")
             
-            estado_actual = row['Estado'] == "Cobrado"
-            nuevo_estado = f_col3.checkbox("Cobrado", value=estado_actual, key=f"fijo_{index}")
-            
-            # Si el usuario cambia el checkbox, actualiza Google Sheets
-            if nuevo_estado != estado_actual:
-                estado_str = "Cobrado" if nuevo_estado else "Pendiente"
-                ws_fijos.update_cell(index + 2, 3, estado_str)
+            btn_guardar_recibos = st.form_submit_button("Actualizar Estados de Recibos")
+            if btn_guardar_recibos:
+                # Actualiza toda la columna de estados en un solo viaje
+                celdas = [[e] for e in estados_actualizados]
+                ws_fijos.update(f"C2:C{len(estados_actualizados) + 1}", celdas)
+                st.success("Recibos actualizados.")
                 st.rerun()
     else:
         st.info("No hay recibos fijos configurados.")
 
 st.divider()
 
-# Historial reciente de compras
+# Historial reciente
 st.subheader("🧾 Últimos Movimientos")
 if not df_movs.empty:
     st.dataframe(df_movs.iloc[::-1].head(15), use_container_width=True)

@@ -29,15 +29,12 @@ except Exception as e:
     st.error(f"Error conectando con Google Sheets: {e}")
     st.stop()
 
-# Función para limpiar cualquier número con comas, puntos o símbolos
 def limpiar_cifra(valor):
     if pd.isna(valor) or valor == "":
         return 0.0
     v = str(valor).replace("€", "").replace("'", "").strip()
-    # Si viene con coma decimal española (ej: 21,26), la cambiamos a punto
     if "," in v and "." not in v:
         v = v.replace(",", ".")
-    # Si viene con punto y coma (ej: 1.250,50)
     elif "." in v and "," in v:
         v = v.replace(".", "").replace(",", ".")
     try:
@@ -45,7 +42,7 @@ def limpiar_cifra(valor):
     except:
         return 0.0
 
-# Cargar datos forzando lectura como texto para no perder la coma
+# Lectura de datos
 config_data = ws_config.get_all_records(numericise_ignore=['all'])
 fijos_data = ws_fijos.get_all_records(numericise_ignore=['all'])
 movs_data = ws_movs.get_all_records(numericise_ignore=['all'])
@@ -54,48 +51,29 @@ df_config = pd.DataFrame(config_data)
 df_fijos = pd.DataFrame(fijos_data)
 df_movs = pd.DataFrame(movs_data)
 
-# Aplicar limpieza de importes
 if not df_fijos.empty and "Importe" in df_fijos.columns:
     df_fijos["Importe"] = df_fijos["Importe"].apply(limpiar_cifra)
 
 if not df_movs.empty and "Importe" in df_movs.columns:
     df_movs["Importe"] = df_movs["Importe"].apply(limpiar_cifra)
 
-# Configuración del mes
+# Configuración actual
 if not df_config.empty:
     mes_actual = str(df_config.iloc[-1]["Mes"])
     nomina = limpiar_cifra(df_config.iloc[-1]["Nomina"])
     bolsa_inicial = limpiar_cifra(df_config.iloc[-1]["Bolsa_Mes_Inicial"])
     colchon = limpiar_cifra(df_config.iloc[-1]["Colchon_Seguridad"])
 else:
-    mes_actual, nomina, bolsa_inicial, colchon = "09-2026", 1969.0, 557.0, 2150.0
+    mes_actual, nomina, bolsa_inicial, colchon = "09-2026", 1969.0, 544.11, 2150.0
 
-# Cálculos
-gastos_bolsa = 0.0
-if not df_movs.empty and "Impacta_En" in df_movs.columns:
-    df_bolsa = df_movs[df_movs["Impacta_En"] == "Bolsa Mes"]
-    gastos_bolsa = float(df_bolsa["Importe"].sum())
-
-bolsa_restante = bolsa_inicial - gastos_bolsa
-
-total_fijos = float(df_fijos["Importe"].sum()) if not df_fijos.empty else 0.0
-fijos_pendientes = 0.0
-if not df_fijos.empty and "Estado" in df_fijos.columns:
-    fijos_pendientes = float(df_fijos[df_fijos["Estado"] == "Pendiente"]["Importe"].sum())
-
-ahorro_disponible = nomina - total_fijos - bolsa_inicial
-
-# ================= UI =================
-st.title("💳 Panel Financiero")
-
-# Menú superior desplegable para ajustar el mes sin barra lateral molesta
-with st.expander("⚙️ Modificar Ajustes del Mes (Nómina, Bolsa, Colchón)"):
+# Ajustes superiores
+with st.expander("⚙️ Modificar Ajustes del Mes (Nómina, Bolsa, Ahorro)"):
     with st.form("form_ajustes_mes"):
         c_m1, c_m2, c_m3, c_m4 = st.columns(4)
         nuevo_mes = c_m1.text_input("Mes / Etiqueta", value=mes_actual)
         nueva_nomina = c_m2.number_input("Nómina ingresada (€)", value=nomina, step=10.0, format="%.2f")
-        nueva_bolsa = c_m3.number_input("Bolsa Pasar Mes (€)", value=bolsa_inicial, step=10.0, format="%.2f")
-        nuevo_colchon = c_m4.number_input("Colchón en Cuenta (€)", value=colchon, step=10.0, format="%.2f")
+        nueva_bolsa = c_m3.number_input("Bolsa Inicial Mes (€)", value=bolsa_inicial, step=10.0, format="%.2f")
+        nuevo_colchon = c_m4.number_input("Ahorro / Colchón (€)", value=colchon, step=10.0, format="%.2f")
         
         btn_guardar_config = st.form_submit_button("Guardar Nuevos Ajustes")
         if btn_guardar_config:
@@ -104,12 +82,30 @@ with st.expander("⚙️ Modificar Ajustes del Mes (Nómina, Bolsa, Colchón)"):
             st.success("Ajustes guardados correctamente.")
             st.rerun()
 
-# Marcadores principales en fila
+# Cálculos de bolsa
+gastos_bolsa = 0.0
+if not df_movs.empty and "Impacta_En" in df_movs.columns:
+    df_bolsa = df_movs[df_movs["Impacta_En"] == "Bolsa Mes"]
+    gastos_bolsa = float(df_bolsa["Importe"].sum())
+
+bolsa_restante = bolsa_inicial - gastos_bolsa
+
+# Cálculos de recibos pendientes
+fijos_pendientes = 0.0
+if not df_fijos.empty and "Estado" in df_fijos.columns:
+    fijos_pendientes = float(df_fijos[df_fijos["Estado"] == "Pendiente"]["Importe"].sum())
+
+# SALDO REAL TOTAL EN CUENTA
+saldo_total_banco = colchon + bolsa_restante + fijos_pendientes
+
+# ================= UI =================
+st.title("💳 Panel Financiero")
+
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.metric(
-        label="🔥 Bolsa para Pasar el Mes",
+        label="🔥 Bolsa Pasar Mes (Disponible)",
         value=f"{bolsa_restante:.2f} €",
         delta=f"-{gastos_bolsa:.2f} € gastados",
         delta_color="inverse"
@@ -117,30 +113,30 @@ with col1:
 
 with col2:
     st.metric(
-        label="⏳ Fijos por Cobrar",
+        label="⏳ Recibos/Apartados Pendientes",
         value=f"{fijos_pendientes:.2f} €",
-        help="Recibos fijos pendientes"
+        help="Jazztel + Gas + Mudanza (lo que falta por salir)"
     )
 
 with col3:
     st.metric(
-        label="🛡️ Colchón en Cuenta",
+        label="🛡️ Ahorro / Colchón",
         value=f"{colchon:.2f} €",
-        help="Saldo mínimo o reserva en cuenta"
+        help="Tu reserva acumulada"
     )
 
 with col4:
     st.metric(
-        label="💰 Excedente a Ahorro / Fondo",
-        value=f"{ahorro_disponible:.2f} €",
-        help="Nómina - Fijos Totales - Bolsa del Mes"
+        label="🏦 Total en Cuenta (Banco)",
+        value=f"{saldo_total_banco:.2f} €",
+        help="Ahorro + Bolsa Disponible + Pendientes por salir"
     )
 
 st.divider()
 
 col_izq, col_der = st.columns([1, 1])
 
-# Formulario rápido de gasto
+# Registrar gasto
 with col_izq:
     st.subheader("➕ Añadir Gasto Rápido")
     with st.form("form_gasto", clear_on_submit=True):
@@ -161,9 +157,9 @@ with col_izq:
             else:
                 st.warning("Indica un concepto y un importe válido.")
 
-# Recibos fijos del mes
+# Recibos y apartados
 with col_der:
-    st.subheader("📋 Recibos del Mes")
+    st.subheader("📋 Recibos y Apartados del Mes")
     if not df_fijos.empty:
         with st.form("form_recibos"):
             estados_actualizados = []
@@ -176,14 +172,14 @@ with col_der:
                 marcado = f_col3.checkbox("Cobrado", value=estado_actual, key=f"fijo_chk_{index}")
                 estados_actualizados.append("Cobrado" if marcado else "Pendiente")
             
-            btn_guardar_recibos = st.form_submit_button("Actualizar Estados de Recibos")
+            btn_guardar_recibos = st.form_submit_button("Actualizar Estados")
             if btn_guardar_recibos:
                 celdas = [[e] for e in estados_actualizados]
                 ws_fijos.update(f"C2:C{len(estados_actualizados) + 1}", celdas)
-                st.success("Recibos actualizados.")
+                st.success("Estados actualizados.")
                 st.rerun()
     else:
-        st.info("No hay recibos fijos.")
+        st.info("No hay recibos configurados.")
 
 st.divider()
 

@@ -64,23 +64,7 @@ if not df_config.empty:
     bolsa_inicial = limpiar_cifra(df_config.iloc[-1]["Bolsa_Mes_Inicial"])
     colchon = limpiar_cifra(df_config.iloc[-1]["Colchon_Seguridad"])
 else:
-    mes_actual, nomina, bolsa_inicial, colchon = "09-2026", 1969.0, 544.11, 2150.0
-
-# Ajustes superiores
-with st.expander("⚙️ Modificar Ajustes del Mes (Nómina, Bolsa, Ahorro)"):
-    with st.form("form_ajustes_mes"):
-        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-        nuevo_mes = c_m1.text_input("Mes / Etiqueta", value=mes_actual)
-        nueva_nomina = c_m2.number_input("Nómina ingresada (€)", value=nomina, step=10.0, format="%.2f")
-        nueva_bolsa = c_m3.number_input("Bolsa Inicial Mes (€)", value=bolsa_inicial, step=10.0, format="%.2f")
-        nuevo_colchon = c_m4.number_input("Ahorro / Colchón (€)", value=colchon, step=10.0, format="%.2f")
-        
-        btn_guardar_config = st.form_submit_button("Guardar Nuevos Ajustes")
-        if btn_guardar_config:
-            fila_idx = len(df_config) + 1 if not df_config.empty else 2
-            ws_config.update(f"A{fila_idx}:D{fila_idx}", [[nuevo_mes, str(nueva_nomina), str(nueva_bolsa), str(nuevo_colchon)]])
-            st.success("Ajustes guardados correctamente.")
-            st.rerun()
+    mes_actual, nomina, bolsa_inicial, colchon = "09-2026", 1969.0, 544.11, 2152.0
 
 # Cálculos de bolsa
 gastos_bolsa = 0.0
@@ -101,6 +85,7 @@ saldo_total_banco = colchon + bolsa_restante + fijos_pendientes
 # ================= UI =================
 st.title("💳 Panel Financiero")
 
+# Marcadores principales arriba
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -207,3 +192,21 @@ if not df_movs.empty:
     st.dataframe(df_mostrar.head(20), use_container_width=True)
 else:
     st.info("Aún no has registrado movimientos este mes.")
+
+st.divider()
+
+# Configuración del mes al final de todo
+with st.expander("⚙️ Modificar Ajustes del Mes (Nómina, Bolsa Inicial, Ahorro)"):
+    with st.form("form_ajustes_mes"):
+        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+        nuevo_mes = c_m1.text_input("Mes / Etiqueta", value=mes_actual)
+        nueva_nomina = c_m2.number_input("Nómina ingresada (€)", value=nomina, step=10.0, format="%.2f")
+        nueva_bolsa = c_m3.number_input("Bolsa Inicial Mes (€)", value=bolsa_inicial, step=10.0, format="%.2f")
+        nuevo_colchon = c_m4.number_input("Ahorro / Colchón (€)", value=colchon, step=10.0, format="%.2f")
+        
+        btn_guardar_config = st.form_submit_button("Guardar Nuevos Ajustes")
+        if btn_guardar_config:
+            fila_idx = len(df_config) + 1 if not df_config.empty else 2
+            ws_config.update(f"A{fila_idx}:D{fila_idx}", [[nuevo_mes, str(nueva_nomina), str(nueva_bolsa), str(nuevo_colchon)]])
+            st.success("Ajustes guardados correctamente.")
+            st.rerun()

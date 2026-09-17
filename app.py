@@ -62,37 +62,58 @@ if not df_config.empty:
     mes_actual = str(df_config.iloc[-1]["Mes"])
     nomina = limpiar_cifra(df_config.iloc[-1]["Nomina"])
     bolsa_inicial = limpiar_cifra(df_config.iloc[-1]["Bolsa_Mes_Inicial"])
-    colchon = limpiar_cifra(df_config.iloc[-1]["Colchon_Seguridad"])
+    colchon_inicial = limpiar_cifra(df_config.iloc[-1]["Colchon_Seguridad"])
 else:
-    mes_actual, nomina, bolsa_inicial, colchon = "09-2026", 1969.0, 544.11, 2152.0
+    mes_actual, nomina, bolsa_inicial, colchon_inicial = "09-2026", 1969.0, 544.11, 2150.0
 
-# Cálculos de bolsa
+# Cálculos dinámicos de movimientos
 gastos_bolsa = 0.0
-if not df_movs.empty and "Impacta_En" in df_movs.columns:
-    df_bolsa = df_movs[df_movs["Impacta_En"] == "Bolsa Mes"]
-    gastos_bolsa = float(df_bolsa["Importe"].sum())
+ingresos_bolsa = 0.0
+gastos_colchon = 0.0
+ingresos_colchon = 0.0
 
-bolsa_restante = bolsa_inicial - gastos_bolsa
+if not df_movs.empty and "Impacta_En" in df_movs.columns:
+    for _, fila in df_movs.iterrows():
+        imp = fila.get("Importe", 0.0)
+        cajon = fila.get("Impacta_En", "")
+        # Detecta si es ingreso por la categoría o descripción
+        cat = str(fila.get("Categoria", ""))
+        es_ingreso = "Ingreso" in cat or imp < 0 or "Bizum +" in cat
+        
+        val_abs = abs(imp)
+        if cajon == "Bolsa Mes":
+            if es_ingreso:
+                ingresos_bolsa += val_abs
+            else:
+                gastos_bolsa += val_abs
+        elif cajon == "Ahorro / Colchón":
+            if es_ingreso:
+                ingresos_colchon += val_abs
+            else:
+                gastos_colchon += val_abs
+
+bolsa_restante = bolsa_inicial - gastos_bolsa + ingresos_bolsa
+colchon_restante = colchon_inicial - gastos_colchon + ingresos_colchon
 
 # Cálculos de recibos pendientes
 fijos_pendientes = 0.0
 if not df_fijos.empty and "Estado" in df_fijos.columns:
     fijos_pendientes = float(df_fijos[df_fijos["Estado"] == "Pendiente"]["Importe"].sum())
 
-# SALDO REAL TOTAL EN CUENTA
-saldo_total_banco = colchon + bolsa_restante + fijos_pendientes
+# Saldo total real en el banco
+saldo_total_banco = colchon_restante + bolsa_restante + fijos_pendientes
 
 # ================= UI =================
 st.title("💳 Panel Financiero")
 
-# Desplegable del Día 1: Justo después del título y antes de las tarjetas
+# Desplegable de ajustes de mes
 with st.expander("⚙️ Modificar Ajustes del Mes (Nómina, Bolsa Inicial, Ahorro)"):
     with st.form("form_ajustes_mes"):
         c_m1, c_m2, c_m3, c_m4 = st.columns(4)
         nuevo_mes = c_m1.text_input("Mes / Etiqueta", value=mes_actual)
         nueva_nomina = c_m2.number_input("Nómina ingresada (€)", value=nomina, step=10.0, format="%.2f")
         nueva_bolsa = c_m3.number_input("Bolsa Inicial Mes (€)", value=bolsa_inicial, step=10.0, format="%.2f")
-        nuevo_colchon = c_m4.number_input("Ahorro / Colchón (€)", value=colchon, step=10.0, format="%.2f")
+        nuevo_colchon = c_m4.number_input("Ahorro / Colchón Inicial (€)", value=colchon_inicial, step=10.0, format="%.2f")
         
         btn_guardar_config = st.form_submit_button("Guardar Nuevos Ajustes")
         if btn_guardar_config:
@@ -101,14 +122,15 @@ with st.expander("⚙️ Modificar Ajustes del Mes (Nómina, Bolsa Inicial, Ahor
             st.success("Ajustes guardados correctamente.")
             st.rerun()
 
-# Marcadores principales
+# 4 Marcadores principales
 col1, col2, col3, col4 = st.columns(4)
 
+delta_bolsa = f"-{gastos_bolsa:.2f} €" + (f" | +{ingresos_bolsa:.2f} €" if ingresos_bolsa > 0 else "")
 with col1:
     st.metric(
         label="🔥 Bolsa Pasar Mes (Disponible)",
         value=f"{bolsa_restante:.2f} €",
-        delta=f"-{gastos_bolsa:.2f} € gastados",
+        delta=delta_bolsa,
         delta_color="inverse"
     )
 
@@ -116,35 +138,41 @@ with col2:
     st.metric(
         label="⏳ Recibos/Apartados Pendientes",
         value=f"{fijos_pendientes:.2f} €",
-        help="Jazztel + Gas + Mudanza (lo que falta por salir)"
+        help="Recibos pendientes de cobro"
     )
 
+delta_colchon = f"-{gastos_colchon:.2f} €" if gastos_colchon > 0 else None
 with col3:
     st.metric(
         label="🛡️ Ahorro / Colchón",
-        value=f"{colchon:.2f} €",
-        help="Tu reserva acumulada"
+        value=f"{colchon_restante:.2f} €",
+        delta=delta_colchon,
+        delta_color="inverse",
+        help="Ahorro acumulado menos imprevistos retirados"
     )
 
 with col4:
     st.metric(
         label="🏦 Total en Cuenta (Banco)",
         value=f"{saldo_total_banco:.2f} €",
-        help="Ahorro + Bolsa Disponible + Pendientes por salir"
+        help="Colchón actual + Bolsa disponible + Pendientes"
     )
 
 st.divider()
 
 col_izq, col_der = st.columns([1, 1])
 
-# Registrar gasto
+# Añadir gasto o ingreso rápido
 with col_izq:
-    st.subheader("➕ Añadir Gasto Rápido")
+    st.subheader("➕ Añadir Movimiento")
     with st.form("form_gasto", clear_on_submit=True):
-        concepto = st.text_input("Concepto", placeholder="Mercadona, Gasolina, Cine...")
-        importe_txt = st.text_input("Importe (€)", placeholder="Ej: 21,26 o 21.26")
-        categoria = st.selectbox("Categoría", ["Alimentación", "Gasolina/Transporte", "Ocio/Restaurante", "Hogar", "Otros"])
-        impacto = st.radio("Descontar de:", ["Bolsa Mes", "Ahorro / Colchón"], horizontal=True)
+        tipo_mov = st.radio("Tipo de Movimiento:", ["Gasto (-)", "Ingreso Extra / Bizum (+)"], horizontal=True)
+        concepto = st.text_input("Concepto", placeholder="Mercadona, Bizum cena, Devolución...")
+        importe_txt = st.text_input("Importe (€)", placeholder="Ej: 20 o 21.26")
+        
+        cat_opciones = ["Alimentación", "Gasolina/Transporte", "Ocio/Restaurante", "Hogar", "Ingreso Extra", "Otros"]
+        categoria = st.selectbox("Categoría", cat_opciones)
+        impacto = st.radio("Afecta a:", ["Bolsa Mes", "Ahorro / Colchón"], horizontal=True)
         
         btn_guardar = st.form_submit_button("Registrar Movimiento")
         
@@ -152,7 +180,9 @@ with col_izq:
             val = limpiar_cifra(importe_txt)
             if concepto.strip() and val > 0:
                 fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-                ws_movs.append_row([fecha_hoy, concepto.strip(), categoria, f"{val:.2f}", impacto])
+                cat_final = "Ingreso Extra" if "Ingreso" in tipo_mov else categoria
+                # Se guarda el movimiento en Google Sheets
+                ws_movs.append_row([fecha_hoy, concepto.strip(), cat_final, f"{val:.2f}", impacto])
                 st.success(f"Guardado: {concepto.strip()} ({val:.2f} €)")
                 st.rerun()
             else:

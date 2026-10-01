@@ -42,7 +42,7 @@ def limpiar_cifra(valor):
     except:
         return 0.0
 
-# Lectura de datos
+# Lectura de datos ignorando formateo automático
 config_data = ws_config.get_all_records(numericise_ignore=['all'])
 fijos_data = ws_fijos.get_all_records(numericise_ignore=['all'])
 movs_data = ws_movs.get_all_records(numericise_ignore=['all'])
@@ -56,45 +56,58 @@ if not df_fijos.empty and "Importe" in df_fijos.columns:
 
 if not df_movs.empty and "Importe" in df_movs.columns:
     df_movs["Importe"] = df_movs["Importe"].apply(limpiar_cifra)
+    # Guardamos la fila real de Google Sheets (fila 2 en adelante)
+    df_movs["_fila_sheets"] = range(2, len(df_movs) + 2)
 
-# Lista de meses válidos en la configuración
+# Lista de meses disponibles
 if not df_config.empty and "Mes" in df_config.columns:
     meses_disponibles = [str(m).strip() for m in df_config["Mes"].unique() if str(m).strip()]
 else:
-    meses_disponibles = ["09-2026"]
+    meses_disponibles = ["10-2026"]
+
+# Selección automática del mes actual según el calendario
+mes_actual_calendario = datetime.now().strftime("%m-%Y")
+if mes_actual_calendario in meses_disponibles:
+    indice_defecto = meses_disponibles.index(mes_actual_calendario)
+else:
+    indice_defecto = len(meses_disponibles) - 1
 
 st.title("💳 Panel Financiero")
 
-# SELECTOR DE MES ACTIVO
+# SELECTOR DE MES
 col_sel1, col_sel2 = st.columns([1, 3])
 with col_sel1:
-    mes_seleccionado = st.selectbox("📅 Mes Activo:", meses_disponibles, index=0)
+    mes_seleccionado = st.selectbox(
+        "📅 Mes Activo:",
+        meses_disponibles,
+        index=indice_defecto
+    )
 
-# Filtrar configuración del mes seleccionado
+# Filtrar configuración del mes activo
 cfg_mes_actual = df_config[df_config["Mes"].astype(str).str.strip() == mes_seleccionado]
 if not cfg_mes_actual.empty:
-    nomina = limpiar_cifra(cfg_mes_actual.iloc[-1].get("Nomina", 1969.0))
-    bolsa_inicial = limpiar_cifra(cfg_mes_actual.iloc[-1].get("Bolsa_Mes_Inicial", 551.93))
-    colchon_inicial = limpiar_cifra(cfg_mes_actual.iloc[-1].get("Colchon_Seguridad", 2150.0))
+    nomina = limpiar_cifra(cfg_mes_actual.iloc[-1].get("Nomina", 1978.18))
+    bolsa_inicial = limpiar_cifra(cfg_mes_actual.iloc[-1].get("Bolsa_Mes_Inicial", 909.04))
+    colchon_inicial = limpiar_cifra(cfg_mes_actual.iloc[-1].get("Colchon_Seguridad", 660.22))
 else:
-    nomina, bolsa_inicial, colchon_inicial = 1969.0, 551.93, 2150.0
+    nomina, bolsa_inicial, colchon_inicial = 1978.18, 909.04, 660.22
 
-# Filtrar Recibos del Mes seleccionado
+# Filtrar Recibos del mes
 if not df_fijos.empty and "Mes" in df_fijos.columns:
     df_fijos_mes = df_fijos[df_fijos["Mes"].astype(str).str.strip() == mes_seleccionado].copy()
 else:
     df_fijos_mes = df_fijos.copy()
 
-# Filtrar Movimientos del Mes seleccionado (por formato YYYY-MM)
+# Filtrar Movimientos del mes seleccionado
 partes_mes = mes_seleccionado.split("-")
 filtro_fecha = f"{partes_mes[1]}-{partes_mes[0]}" if len(partes_mes) == 2 else mes_seleccionado
 
 if not df_movs.empty and "Fecha" in df_movs.columns:
-    df_movs_mes = df_movs[df_movs["Fecha"].astype(str).str.startswith(filtro_fecha)].copy()
+    df_movs_mes = df_movs[df_movs["Fecha"].astype(str).str.startswith(filtro_fecha)].copy().reset_index(drop=True)
 else:
     df_movs_mes = pd.DataFrame(columns=df_movs.columns)
 
-# DESPLEGABLE: MODIFICAR AJUSTES DEL MES SELECCIONADO
+# DESPLEGABLE: MODIFICAR AJUSTES DEL MES
 with st.expander(f"⚙️ Modificar Ajustes de {mes_seleccionado}"):
     with st.form("form_ajustes_mes"):
         c_m1, c_m2, c_m3, c_m4 = st.columns(4)
@@ -114,7 +127,7 @@ with st.expander(f"⚙️ Modificar Ajustes de {mes_seleccionado}"):
             st.success("Guardado correctamente.")
             st.rerun()
 
-# Cálculos dinámicos de movimientos del mes seleccionado
+# Cálculos dinámicos
 gastos_bolsa = 0.0
 ingresos_bolsa = 0.0
 gastos_colchon = 0.0
@@ -142,14 +155,14 @@ if not df_movs_mes.empty and "Impacta_En" in df_movs_mes.columns:
 bolsa_restante = bolsa_inicial - gastos_bolsa + ingresos_bolsa
 colchon_restante = colchon_inicial - gastos_colchon + ingresos_colchon
 
-# Recibos pendientes del mes seleccionado
+# Recibos pendientes
 fijos_pendientes = 0.0
 if not df_fijos_mes.empty and "Estado" in df_fijos_mes.columns:
     fijos_pendientes = float(df_fijos_mes[df_fijos_mes["Estado"] == "Pendiente"]["Importe"].sum())
 
 saldo_total_banco = colchon_restante + bolsa_restante + fijos_pendientes
 
-# MARCADORES DEL MES SELECCIONADO
+# MARCADORES
 col1, col2, col3, col4 = st.columns(4)
 
 delta_bolsa = f"-{gastos_bolsa:.2f} €" + (f" | +{ingresos_bolsa:.2f} €" if ingresos_bolsa > 0 else "")
@@ -190,7 +203,7 @@ col_izq, col_der = st.columns([1, 1])
 
 # Añadir gasto / ingreso
 with col_izq:
-    st.subheader(f"➕ Añadir Movimiento")
+    st.subheader("➕ Añadir Movimiento")
     with st.form("form_gasto", clear_on_submit=True):
         tipo_mov = st.radio("Tipo:", ["Gasto (-)", "Ingreso Extra / Bizum (+)"], horizontal=True)
         concepto = st.text_input("Concepto", placeholder="Mercadona, Gasolina, Cena...")
@@ -244,9 +257,9 @@ st.subheader(f"🧾 Movimientos de {mes_seleccionado}")
 if not df_movs_mes.empty:
     with st.expander("🗑️ Eliminar un movimiento"):
         opciones_borrar = {}
-        for i in reversed(df_movs_mes.index):
-            row = df_movs_mes.iloc[i]
-            num_fila_sheets = i + 2
+        # Iterar de forma segura sobre las filas del mes
+        for _, row in df_movs_mes.iloc[::-1].iterrows():
+            num_fila_sheets = int(row["_fila_sheets"])
             etiqueta = f"Fila {num_fila_sheets} | {row['Fecha']} - {row['Concepto']} ({row['Importe']:.2f} €) [{row['Impacta_En']}]"
             opciones_borrar[etiqueta] = num_fila_sheets
         
@@ -259,6 +272,7 @@ if not df_movs_mes.empty:
 
     df_mostrar = df_movs_mes.copy().iloc[::-1]
     df_mostrar["Importe"] = df_mostrar["Importe"].map(lambda x: f"{x:.2f} €")
-    st.dataframe(df_mostrar.head(25), use_container_width=True)
+    columnas_ver = [c for c in ["Fecha", "Concepto", "Categoria", "Importe", "Impacta_En"] if c in df_mostrar.columns]
+    st.dataframe(df_mostrar[columnas_ver].head(25), use_container_width=True)
 else:
     st.info(f"No hay movimientos registrados para {mes_seleccionado}.")

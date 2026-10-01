@@ -56,7 +56,7 @@ if not df_fijos.empty and "Importe" in df_fijos.columns:
 
 if not df_movs.empty and "Importe" in df_movs.columns:
     df_movs["Importe"] = df_movs["Importe"].apply(limpiar_cifra)
-    # Guardamos la fila real de Google Sheets (fila 2 en adelante)
+    # Guardamos la fila física real de Google Sheets (fila 2 en adelante)
     df_movs["_fila_sheets"] = range(2, len(df_movs) + 2)
 
 # Lista de meses disponibles
@@ -251,13 +251,12 @@ with col_der:
 
 st.divider()
 
-# Historial del mes seleccionado
+# Historial del mes seleccionado sin recortes
 st.subheader(f"🧾 Movimientos de {mes_seleccionado}")
 
 if not df_movs_mes.empty:
     with st.expander("🗑️ Eliminar un movimiento"):
         opciones_borrar = {}
-        # Iterar de forma segura sobre las filas del mes
         for _, row in df_movs_mes.iloc[::-1].iterrows():
             num_fila_sheets = int(row["_fila_sheets"])
             etiqueta = f"Fila {num_fila_sheets} | {row['Fecha']} - {row['Concepto']} ({row['Importe']:.2f} €) [{row['Impacta_En']}]"
@@ -273,6 +272,8 @@ if not df_movs_mes.empty:
     df_mostrar = df_movs_mes.copy().iloc[::-1]
     df_mostrar["Importe"] = df_mostrar["Importe"].map(lambda x: f"{x:.2f} €")
     columnas_ver = [c for c in ["Fecha", "Concepto", "Categoria", "Importe", "Impacta_En"] if c in df_mostrar.columns]
-    st.dataframe(df_mostrar[columnas_ver].head(25), use_container_width=True)
+    
+    # Se muestran TODOS los movimientos del mes completo
+    st.dataframe(df_mostrar[columnas_ver], use_container_width=True)
 else:
     st.info(f"No hay movimientos registrados para {mes_seleccionado}.")
